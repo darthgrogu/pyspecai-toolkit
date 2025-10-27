@@ -15,7 +15,7 @@ from typing import List, Dict, Optional
 # Import the specific parser we created
 # Ensure the path is correct relative to the 'src' directory
 
-from parsers.parser_isc_nirsg1_minicourse_inpa_absorbance import (
+from pyspecaitoolkit.parsers.parser_isc_micronir_nirsg1 import (
     parse as parse_micronir_inpa,
     BARCODE_COL_STD,
 )
