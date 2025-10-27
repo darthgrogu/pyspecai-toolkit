@@ -5,6 +5,10 @@
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools]
+# Diz ao setuptools para procurar pacotes apenas dentro desta lista de pastas
+packages = ["pyspecaitoolkit"]
+
 # Project metadata
 [project]
 name = "pyspecaitoolkit"
@@ -15,12 +19,11 @@ authors = [
 description = "A Python toolkit for standardized spectroscopic data analysis (NIR focus). Features modular parsers, scikit-learn compatible preprocessing pipelines, ML model training/evaluation, ONNX export for interoperability, and a local inference server for easy model deployment."
 readme = "README.md"
 requires-python = ">=3.9" # Requires Python 3.9 or newer
-license = { file="LICENSE" } # Assumes your license file is named LICENSE
+license-files = ["LICENSE"] # Assumes your license file is named LICENSE
 keywords = ["spectroscopy", "nir", "chemometrics", "machine learning", "botany", "herbarium", "onnx"]
 classifiers = [
     "Development Status :: 3 - Alpha", # Indicates it's an early version
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License", # Make sure this matches your LICENSE file
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
@@ -46,6 +49,7 @@ dependencies = [
     # "matplotlib",
     # "jupyterlab",
 ]
+
 
 # Optional dependencies (e.g., for development or specific features)
 # [project.optional-dependencies]
