@@ -370,7 +370,7 @@ def build_master_dataset(
 
     # 1. Defina sua "ordem ideal" de colunas.
     #    Use as constantes que importamos de protocols_config.py
-    ideal_column_order = [
+    ideal_column_order = [gi
         # IDs Principais
         UNIQUE_ID_COL_STD,
         FILENAME_COL_STD,
