@@ -19,10 +19,12 @@ from pyspecaitoolkit.metadata_extractors import filename_extractor, excel_extrac
 UNIQUE_ID_COL_STD = "unique_id"
 BARCODE_COL_STD = "barcode"  # If barcode is kept separate from unique_id
 ACCESSION_COL_STD = "accession"  # If accession is kept separate from unique_id
+FILENAME_COL_STD = "source_filename"
 LEAF_FACE_COL_STD = "leaf_face"
 PROTOCOL_COL_STD = "protocol"  # protocol extracted from filename
 SCAN_DATE_COL_STD = "scan_date"
 SCAN_TIME_COL_STD = "scan_time"
+
 # Add standard names for columns coming from Excel
 SCIENTIFIC_NAME_COL_STD = "scientific_name"
 COLLECTOR_COL_STD = "collector"
@@ -35,6 +37,8 @@ LOCALITY_COL_STD = "locality"
 HABITAT_COL_STD = "habitat"
 LATITUDE_COL_STD = "latitude"
 LONGITUDE_COL_STD = "longitude"
+WAVELENGTH_COL_STD = "wavelength"
+INTENSITY_COL_STD = "intensity"
 
 # --- Protocol Definitions ---
 
@@ -55,7 +59,7 @@ PROTOCOLS = {
                 "config": {
                     "delimiter": "_",
                     "parts_mapping": {
-                        0: BARCODE_COL_STD,  # Using barcode as the initial unique ID here
+                        0: UNIQUE_ID_COL_STD,
                         1: LEAF_FACE_COL_STD,
                         2: PROTOCOL_COL_STD,  # Extracts 'FolHerbario' etc.
                         3: SCAN_DATE_COL_STD,
@@ -102,8 +106,8 @@ PROTOCOLS = {
                     },
                 },
                 # Specifies which column extracted previously links to this extractor
-                # (The filename_extractor output 'barcode', which matches 'SpecimenBarcode')
-                "link_on": BARCODE_COL_STD,
+                # (The filename_extractor output 'unique_id', which matches 'SpecimenBarcode')
+                "link_on": UNIQUE_ID_COL_STD,
             },
         ],
         # Define the final unique identifier column after all merges
@@ -115,35 +119,6 @@ PROTOCOLS = {
 }
 
 
-# --- Helper function (optional, can be in create_dataset.py too) ---
 def get_protocol_config(protocol_name: str) -> Optional[Dict]:
     """Retrieves the configuration for a given protocol name."""
     return PROTOCOLS.get(protocol_name)
-
-
-if __name__ == "__main__":
-    # Simple test to check if the config can be loaded and accessed
-    print("--- Testing Protocol Configuration ---")
-    inpa_config = get_protocol_config("INPAMINICURSO")
-    if inpa_config:
-        print("Successfully loaded config for 'INPAMINICURSO':")
-        import json
-
-        print(
-            json.dumps(inpa_config, indent=2, default=lambda f: f.__name__)
-        )  # Print function names nicely
-    else:
-        print("Error: Could not find config for 'INPAMINICURSO'.")
-
-    # Test accessing specific parts
-    if inpa_config:
-        print(
-            "\nParser function:", inpa_config.get("parser", {}).get("function").__name__
-        )
-        extractors = inpa_config.get("metadata_extractors", [])
-        print(f"Number of metadata extractors: {len(extractors)}")
-        if len(extractors) > 1:
-            print(
-                "Excel extractor config file path:",
-                extractors[1].get("config", {}).get("file_path"),
-            )
