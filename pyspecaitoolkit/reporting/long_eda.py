@@ -13,6 +13,84 @@ FALLBACK_MODEL = "__UNKNOWN_MODEL__"
 FALLBACK_SERIAL = "__UNKNOWN_SERIAL__"
 
 
+def summarize_coverage_by_sample(df_long: pd.DataFrame) -> pd.DataFrame:
+    """
+    Summarizes wavelength coverage and native step for each individual sample.
+
+    Esta função gera os dados para o "gráfico de diagnóstico de cobertura"
+    (ou "spaghetti plot" do eixo lambda). Ela agrega o DataFrame long
+    canônico por 'unique_id' (amostra).
+
+    Diferente de `summarize_coverage_by_instrument`, esta função usa
+    o `min()` e `max()` reais de cada amostra, não os percentis robustos,
+    pois seu objetivo é visualizar a cobertura *bruta* exata de cada amostra
+    e identificar outliers visuais.
+
+    Args:
+        df_long: O DataFrame long canônico (validado pelo
+                 ensure_long_canonical).
+
+    Returns:
+        Um DataFrame de sumarização com colunas:
+        - unique_id
+        - instrumentModel
+        - instrumentNumber
+        - lambda_min (o min() real da amostra)
+        - lambda_max (o max() real da amostra)
+        - n_points (contagem de pontos λ na amostra)
+        - median_native_step_nm (mediana do step nativo da amostra)
+    """
+    if df_long.empty:
+        log.warning("Input DataFrame is empty. Returning empty sample summary.")
+        return pd.DataFrame()
+
+    log.info(
+        f"Summarizing sample coverage for {df_long['unique_id'].nunique()} samples..."
+    )
+
+    # --- 0. Tratamento Defensivo de NaN (A REVISÃO) ---
+    # Garantimos que os fallbacks sejam usados se os dados
+    # do instrumento estiverem faltando.
+    df_clean = df_long.copy()
+    if df_clean["instrumentModel"].isna().any():
+        df_clean["instrumentModel"] = df_clean["instrumentModel"].fillna(FALLBACK_MODEL)
+    if df_clean["instrumentNumber"].isna().any():
+        df_clean["instrumentNumber"] = df_clean["instrumentNumber"].fillna(
+            FALLBACK_SERIAL
+        )
+
+    # --- 1. Calcular Step Nativo por Amostra ---
+    # (Este cálculo é idêntico ao da outra função)
+    log.debug("Calculating native step per sample (median of diffs)...")
+    df_sorted = df_clean.sort_values(["unique_id", "wavelength_nm"])
+    lambda_diffs = df_sorted.groupby("unique_id")["wavelength_nm"].diff()
+
+    median_steps_per_sample = lambda_diffs.groupby(df_sorted["unique_id"]).median()
+    median_steps_per_sample.name = "median_native_step_nm"
+
+    # --- 2. Calcular Cobertura Bruta por Amostra ---
+    # Aqui usamos .agg() para obter min, max, e count.
+    log.debug("Aggregating raw wavelength coverage (min, max, count) by sample...")
+    sample_coverage_agg = df_clean.groupby("unique_id")["wavelength_nm"].agg(
+        lambda_min="min", lambda_max="max", n_points="count"
+    )
+
+    # --- 3. Obter Metadados da Amostra ---
+    sample_meta = (
+        df_clean[["unique_id", "instrumentModel", "instrumentNumber"]]
+        .drop_duplicates()
+        .set_index("unique_id")
+    )
+
+    # --- 4. Combinar tudo ---
+    # Juntamos os metadados, a cobertura (min/max/n) e o step
+    summary_df = sample_meta.join(sample_coverage_agg).join(median_steps_per_sample)
+
+    summary_df = summary_df.reset_index()
+    log.info("Sample coverage summary complete.")
+    return summary_df
+
+
 def summarize_coverage_by_instrument(df_long: pd.DataFrame) -> pd.DataFrame:
     """
     Summarizes wavelength coverage and native step by instrument.
