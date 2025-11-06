@@ -3,7 +3,7 @@
 from typing import Optional, Dict
 
 """
-Central configuration defining the processing steps for different spectral data protocols/datasets.
+Central configuration defining the processing steps of data ingestion for different spectral data protocols/datasets.
 
 Each key represents a unique protocol identifier. The value is a dictionary defining:
 - parser: Details about the equipment parser to use.
