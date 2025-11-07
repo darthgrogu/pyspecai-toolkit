@@ -1,17 +1,36 @@
+# Caminho: pyspecaitoolkit/create_dataset.py
 # -*- coding: utf-8 -*-
 """
-Orchestrates the creation of a consolidated spectral dataset in long format
-by processing defined protocols from the protocols_config.
+Orquestra a criação de um dataset espectral consolidado no formato long
+processando protocolos definidos em protocols_config.
+
+### NOTA DA ATUALIZAÇÃO (PASSO 5 v2) ###
+Seguindo a sugestão de design, esta função agora segue estritamente
+o Princípio da Responsabilidade Única.
+
+Sua ÚNICA responsabilidade é:
+1. Ler os arquivos brutos do protocolo.
+2. Usar os parsers e extratores para obter um DataFrame "bruto".
+3. Os nomes das colunas neste DataFrame "bruto" são
+   padronizados pelas constantes em 'protocols_config.py'
+   (ex: UNIQUE_ID_COL_STD).
+4. Salvar este DataFrame "bruto" em um CSV.
+5. Retornar este DataFrame "bruto" em memória para o
+   próximo passo do pipeline (o Validador).
+
+Esta função NÃO "tempera" os dados nem os converte para o
+formato canônico. Essa responsabilidade foi movida para
+'pyspecaitoolkit/validation/long_schema.py'.
 """
 
 import os
 import pandas as pd
 import glob
 from typing import List, Dict, Optional, Callable, Any
-import argparse  # For command line interface
+import argparse  # Para a interface de linha de comando
 
 # 1. IMPORTAÇÕES DA CONFIGURAÇÃO E COMPONENTES:
-# Importa as configurações de protocolo e os nomes de colunas padrão
+# Importa as configurações e as *Constantes de Protocolo*
 from pyspecaitoolkit.protocols.protocols_config import get_protocol_config, PROTOCOLS
 from pyspecaitoolkit.protocols.protocols_config import (
     UNIQUE_ID_COL_STD,
@@ -69,11 +88,14 @@ def save_debug_df(df: pd.DataFrame, protocol_name: str, step_name: str):
 def build_master_dataset(
     protocols_to_process: List[str],
     output_path: str,
-    debug_mode: bool = False,  # Flag para ativar o salvamento de arquivos de debug
-) -> bool:
+    debug_mode: bool = False,
+) -> Optional[pd.DataFrame]:
     """
-    Builds a master dataset by processing a list of specified protocols.
-    Returns True on success, False on failure.
+    Constrói um dataset mestre processando uma lista de protocolos.
+
+    Retorna:
+        Optional[pd.DataFrame]: O DataFrame "bruto" consolidado em memória
+                                em caso de sucesso, ou None em caso de falha.
     """
     print(f"\n--- Starting Master Dataset Creation ---")
     print(f"Processing protocols: {', '.join(protocols_to_process)}")
@@ -83,7 +105,6 @@ def build_master_dataset(
         )
 
     all_protocol_data: List[pd.DataFrame] = []
-    global_success = True
 
     # --- 4. LOOP PRINCIPAL SOBRE OS PROTOCOLOS ---
     for protocol_name in protocols_to_process:
@@ -93,7 +114,6 @@ def build_master_dataset(
             print(
                 f"Error: Configuration for protocol '{protocol_name}' not found. Skipping."
             )
-            global_success = False
             continue
 
         # --- 4a. PARSING DOS DADOS ESPECTRAIS ---
@@ -106,15 +126,12 @@ def build_master_dataset(
             print(
                 f"Error: Incomplete parser configuration for '{protocol_name}'. Skipping."
             )
-            global_success = False
             continue
 
-        # Sua checagem (ótima prática!)
         if not callable(parser_func):
             print(
                 f"Error: Invalid parser_func (not callable) for protocol '{protocol_name}'. Skipping."
             )
-            global_success = False
             continue
 
         print(
@@ -122,20 +139,15 @@ def build_master_dataset(
         )
         search_path = os.path.join(raw_data_path, file_pattern)
         raw_files = glob.glob(search_path)
-        # Simplificação: Assumimos que o usuário colocou apenas os arquivos corretos na pasta
-        # Filtros explícitos (como not _r.csv) podem ser adicionados ao parser ou ao file_pattern
         print(f"  Found {len(raw_files)} files matching pattern.")
 
         parsed_spectra_list: List[pd.DataFrame] = []
         parsed_files_count = 0
         skipped_files_count = 0
-        unique_filenames_processed = (
-            set()
-        )  # Arquivos que o parser processou com sucesso
+        unique_filenames_processed = set()
 
         for file_path in raw_files:
             parsed_df = parser_func(file_path)
-            # Sua checagem (ótima prática!)
             if isinstance(parsed_df, pd.DataFrame) and not parsed_df.empty:
                 if FILENAME_COL_STD not in parsed_df.columns:
                     print(
@@ -144,14 +156,10 @@ def build_master_dataset(
                     skipped_files_count += 1
                     continue
                 parsed_spectra_list.append(parsed_df)
-                unique_filenames_processed.add(
-                    os.path.basename(file_path)
-                )  # Adiciona o NOME BASE
+                unique_filenames_processed.add(os.path.basename(file_path))
                 parsed_files_count += 1
             else:
-                skipped_files_count += (
-                    1  # Parser falhou ou pulou o arquivo (ex: _r.csv)
-                )
+                skipped_files_count += 1
 
         print(
             f"  Parsing complete. Processed: {parsed_files_count}. Skipped/Invalid: {skipped_files_count}."
@@ -161,13 +169,11 @@ def build_master_dataset(
             print(
                 f"Error: No spectral data parsed for '{protocol_name}'. Skipping protocol."
             )
-            global_success = False
             continue
 
         df_merged_protocol = pd.concat(parsed_spectra_list, ignore_index=True)
         print(f"  Concatenated spectral data points: {len(df_merged_protocol)}")
 
-        # --- DEBUG 1: SALVAR DADOS ESPECTRAIS PUROS ---
         if debug_mode:
             save_debug_df(df_merged_protocol, protocol_name, "1_spectral_only")
 
@@ -191,30 +197,24 @@ def build_master_dataset(
                 print(
                     f"Error: Incomplete config for extractor '{extractor_id}'. Skipping step."
                 )
-                global_success = False
                 continue
             if not callable(extractor_func):
                 print(
                     f"Error: Invalid extractor_func for extractor '{extractor_id}'. Skipping step."
                 )
-                global_success = False
                 continue
 
             print(
                 f"    Running extractor: '{extractor_id}' (Type: {extractor_type}, Link on: '{link_on_col}')"
             )
 
-            # --- LÓGICA DIFERENCIADA POR TIPO DE EXTRATOR ---
-
             if extractor_type == "filename":
                 if link_on_col != FILENAME_COL_STD:
                     print(
                         f"Error: 'filename' extractor must use '{FILENAME_COL_STD}' as link_on. Skipping."
                     )
-                    global_success = False
                     continue
 
-                # Pega os nomes de arquivo únicos que foram processados
                 unique_filenames = list(unique_filenames_processed)
                 if not unique_filenames:
                     print(
@@ -229,9 +229,7 @@ def build_master_dataset(
                 for fname in unique_filenames:
                     extracted_meta = extractor_func(fname, extractor_specific_config)
                     if extracted_meta and isinstance(extracted_meta, dict):
-                        extracted_meta[FILENAME_COL_STD] = (
-                            fname  # Adiciona a chave de link
-                        )
+                        extracted_meta[FILENAME_COL_STD] = fname
                         meta_list.append(extracted_meta)
                     else:
                         print(
@@ -242,18 +240,15 @@ def build_master_dataset(
                     print(
                         f"Error: Filename extractor '{extractor_id}' failed to extract metadata from any file. Skipping merge."
                     )
-                    global_success = False
                     continue
 
                 df_meta_to_merge = pd.DataFrame.from_records(meta_list)
 
-                # DEBUG: Salva os metadados extraídos do nome do arquivo ANTES do merge
                 if debug_mode:
                     save_debug_df(
                         df_meta_to_merge, protocol_name, f"2a_meta_from_{extractor_id}"
                     )
 
-                # Junta os novos metadados ao DataFrame principal
                 df_merged_protocol = pd.merge(
                     df_merged_protocol,
                     df_meta_to_merge,
@@ -264,12 +259,10 @@ def build_master_dataset(
                 print(f"    Successfully merged metadata from '{extractor_id}'.")
 
             elif extractor_type in ["external_excel", "external_csv", "external_db"]:
-                # Lógica de "BUSCAR" dados com base em IDs
                 if link_on_col not in df_merged_protocol.columns:
                     print(
                         f"Error: Link column '{link_on_col}' not found in DataFrame for extractor '{extractor_id}'. Skipping step."
                     )
-                    global_success = False
                     continue
 
                 ids_to_pass = list(df_merged_protocol[link_on_col].unique())
@@ -296,28 +289,20 @@ def build_master_dataset(
                     )
                     continue
 
-                # Validação da coluna de ligação
-                # O extrator DEVE retornar a coluna de ID com o nome padrão (ex: UNIQUE_ID_COL_STD)
-                # e o 'link_on' deve corresponder a esse nome padrão (ou ao nome no DF principal)
                 if link_on_col not in extracted_meta_df.columns:
                     print(
                         f"Error: Extractor '{extractor_id}' output missing link column '{link_on_col}'. Columns: {extracted_meta_df.columns.tolist()}. Skipping merge."
                     )
-                    global_success = False
                     continue
 
-                # DEBUG: Salva os metadados extraídos da fonte externa ANTES do merge
                 if debug_mode:
                     save_debug_df(
                         extracted_meta_df, protocol_name, f"2b_meta_from_{extractor_id}"
                     )
 
-                # Junta os novos metadados
                 df_merged_protocol = pd.merge(
                     df_merged_protocol,
-                    extracted_meta_df.drop_duplicates(
-                        subset=[link_on_col]
-                    ),  # Remove duplicatas na fonte externa
+                    extracted_meta_df.drop_duplicates(subset=[link_on_col]),
                     on=link_on_col,
                     how="left",
                     suffixes=("", f"_ext{i+1}"),
@@ -328,25 +313,22 @@ def build_master_dataset(
                 print(
                     f"Warning: Unknown extractor type '{extractor_type}'. Skipping step."
                 )
-                global_success = False
 
-            # ---- DEBUG 3: SALVAR APÓS CADA MERGE ---
             if debug_mode:
                 save_debug_df(
                     df_merged_protocol,
                     protocol_name,
                     f"2c_post_merge_step_{i+1}_{extractor_id}",
                 )
-            # ---- FIM DO DEBUG 3 ----
 
-        # --- Fim do Loop de Extratores ---
         all_protocol_data.append(df_merged_protocol)
         print(f"-- Finished processing Protocol: {protocol_name} --")
 
     # --- 5. CONCATENAÇÃO FINAL (Todos os Protocolos) ---
     if not all_protocol_data:
         print("\nError: No data processed. Final dataset cannot be created.")
-        return False
+        # ### ALTERAÇÃO (PASSO 5 v2) ###
+        return None  # Retorna None em caso de falha
 
     print("\nConcatenating data from all processed protocols...")
     try:
@@ -354,22 +336,17 @@ def build_master_dataset(
         print(f"Master dataset created with {len(df_master_long)} total rows.")
     except Exception as e:
         print(f"Error during final concatenation: {e}")
-        return False
+        return None  # Retorna None em caso de falha
 
-    # ---- DEBUG 4: SALVAR ANTES DO SAVE FINAL ---
     if debug_mode:
         save_debug_df(df_master_long, "MASTER", "3_master_long_before_save")
-    # ---- FIM DO DEBUG 4 ----
-
-    # --- 6. VALIDAÇÃO FINAL E SALVAR ---
 
     # --- 6. VALIDAÇÃO FINAL, REORDENAÇÃO E SALVAR ---
     print(f"Reordering columns for final dataset...")
 
-    # --- INÍCIO DA ADIÇÃO: LÓGICA DE REORDENAÇÃO ---
-
-    # 1. Defina sua "ordem ideal" de colunas.
-    #    Use as constantes que importamos de protocols_config.py
+    # A reordenação usa as constantes de protocolo *originais*,
+    # pois a renomeação canônica ainda não aconteceu. Ocorrerá apenas
+    # em 'pyspecaitoolkit/validation/long_schema.py'.
     ideal_column_order = [
         # IDs Principais
         UNIQUE_ID_COL_STD,
@@ -397,41 +374,40 @@ def build_master_dataset(
         HABITAT_COL_STD,
     ]
 
-    # 2. Pega as colunas que realmente existem no seu DataFrame
     existing_columns = df_master_long.columns.tolist()
-
-    # 3. Cria a lista de colunas final
     final_ordered_columns = []
 
-    # Adiciona colunas da "lista ideal" que existem no DataFrame
     for col in ideal_column_order:
         if col in existing_columns:
             final_ordered_columns.append(col)
 
-    # Adiciona quaisquer colunas extras que não estavam na lista ideal
-    # (isso torna o código robusto se um extrator adicionar colunas inesperadas)
     extra_columns = [
         col for col in existing_columns if col not in final_ordered_columns
     ]
     final_ordered_columns.extend(extra_columns)
 
-    # 4. Reaplique a ordem ao DataFrame
     df_master_long = df_master_long[final_ordered_columns]
 
     print(f"Columns reordered successfully.")
 
-    # ---- FIM DA ADIÇÃO ---
     print(f"Saving master dataset (long format) to: {output_path}")
     try:
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        # Garante que o diretório de saída exista
+        output_dir = os.path.dirname(output_path)
+        if output_dir:  # Evita erro se o path for só um nome de arquivo
+            os.makedirs(output_dir, exist_ok=True)
+
         df_master_long.to_csv(output_path, index=False)
         print("Dataset saved successfully.")
     except Exception as e:
         print(f"Error saving dataset: {e}")
-        return False
+        return None  # Retorna None em caso de falha
 
     print("--- Master Dataset Creation Finished ---")
-    return global_success
+
+    # Retorna o DataFrame "bruto" (com nomes de coluna de protocolo)
+    # em memória para o próximo passo.
+    return df_master_long
 
 
 # --- Interface de Linha de Comando ---
@@ -475,13 +451,17 @@ def main_cli():
         print("Error: No valid protocols specified. Exiting.")
         return
 
-    success = build_master_dataset(
+    # A função retorna o DataFrame ou None em caso de falha.
+    df_or_none = build_master_dataset(
         protocols_to_process=valid_protocols,
         output_path=args.output,
         debug_mode=args.debug,
     )
-    if success:
-        print("\nConsolidation process completed.")
+
+    if df_or_none is not None:
+        print(
+            f"\nConsolidation process completed. DataFrame returned with {len(df_or_none)} rows."
+        )
     else:
         print("\nConsolidation process finished with errors or warnings.")
 
